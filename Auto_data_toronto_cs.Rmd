@@ -1,0 +1,188 @@
+---
+title: 'Auto Accidents Toronto: Case Study'
+author: "Mark Edney"
+date: '2021-08-09'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+```
+
+## Introduction
+
+This is a custom case study for the Capstone Project for the Google Data Analytics
+course on Coursera. This case study outlines the steps to create and solve a bussiness
+using a dataset. 
+
+## Ask
+
+
+The business task is to research into traffic collisions for a tow trucking company 
+in Toronto. Where should tow trucks be stationed to most quickly respond to calls 
+in the most common collision sites? What are the best times to have employees working?
+Are there times in the year would it would be a good idea to hire contractors to 
+meet increased demand?
+
+The main stakeholders are the owners of the tow truck company requesting data analysis. 
+An additional stakeholder is the police department as the are the owners of the dataset.
+
+The database is the automotive traffic collisions dataset
+for Toronto from the open data Toronto site found [here](https://open.toronto.ca/dataset/police-annual-statistical-report-traffic-collisions/).
+
+## Prepare
+
+The following short script is used to download the automotive accident data from
+the open data Toronto database. The data is than saved as an RDS file. RDS files
+are unique to R studio, which is a major disadvantage, but compress the data significantly
+more than a csv file. 
+
+```{r}
+library(opendatatoronto)
+library(tidyverse)
+library(lubridate)
+
+auto.data <- show_package("ec53f7b2-769b-4914-91fe-a37ee27a90b3") %>%
+        list_package_resources() %>%
+        get_resource() %>%
+        as_tibble()
+        
+saveRDS(auto.data, "Auto_accidents_toronto.RDS")
+auto.data <- readRDS("Auto_accidents_toronto.RDS")
+
+```
+
+The best way to observe the data is with the 'glimpse' function, which clearly outlines
+the structure of the data. 
+
+```{r}
+glimpse(auto.data)
+```
+
+## Process
+
+Some errors are observed from the data import. Some of the columns can be dropped
+as they don't add anything to the analysis.  
+
+```{r drop}
+auto.data <- auto.data %>%
+  select(-c(OBJECTID, EventUniqueId, Division, Atom, ObjectId2, geometry))
+```
+
+Some of the column names are not very descriptive such as FTR_Collisions and PD_Collisions.
+From the metadata descriptions, these values represent "Failure to remain at the scene"
+and "Property Damage" respectively. 
+
+```{r rename}
+auto.data <- auto.data %>%
+  rename("Left_scene" = FTR_Collisions, "Property_Damage" = PD_Collisions, "Injury" = Injury_Collisions)
+```
+
+The last three columns also only have yes/no possible values so they are better 
+represented as factors. 
+
+```{r factor}
+auto.data <- auto.data %>%
+  mutate(Left_scene = as.factor(Left_scene), Property_Damage = as.factor(Property_Damage),
+            Injury = as.factor(Injury),
+         Day_of_Week = factor(Day_of_Week, levels = c("Monday", "Tuesday", "Wednesday", "Thursday", 
+"Friday", "Saturday", "Sunday")))
+```
+
+## Analyze
+
+### Neighbourhoods
+
+The first step it to identify the neighborhoods with the highest rate of collisions. 
+The neighborhood is used rather than the GPS coordinates as it greatly reduces the 
+results into manageable areas. 
+
+```{r locations}
+Location <- auto.data %>%
+  count(Neighbourhood) %>%
+  arrange(-n)
+```
+
+The top 10 Neighborhoods for collisions can than be plotted:
+
+```{r locationplot}
+ggplot(Location[1:10,], aes(y = n, x = reorder(Neighbourhood, -n))) +
+  geom_bar(stat = "identity") + 
+  coord_flip()
+```
+
+With the neighborhoods with the greatest collision response identified, it may be useful
+to map them. There are many different way to find the neighborhoods, there may even be
+shape files outlining the neighborhoods borders, but the easiest way would to simple 
+find the average of the Latitude and Longitude values when grouped by neighborhood.
+This dataframe can than be join with the previous summary to add the count values. 
+
+```{r area_gps}
+Area <- auto.data %>%
+  group_by(Neighbourhood) %>%
+  summarise(Longitude = mean(Longitude), Latitude = mean(Latitude)) %>%
+  left_join(Location)
+```
+### Dates
+
+Trends for the date can be observed from a plot of the days of the week against 
+the count. Any trend with the hour of the day can also be observed on the same 
+chart. 
+
+```{r date}
+auto.data %>%
+  ggplot(aes(x = Day_of_Week, fill = factor(Hour))) +
+  geom_bar() + 
+  coord_flip()
+```
+There is no clear trend with the previous plot as there are to many possible times
+in the date. The time of day should be observed separately. 
+
+```{r time}
+auto.data %>%
+  ggplot(aes(x = Hour)) +
+  geom_bar() + 
+  coord_flip()
+```
+
+Finding the frequency of collisions by month would show any seasonal variation such
+as the commonly accepted theory of increased collisions during snowy months. 
+
+```{r season}
+auto.data %>%
+  ggplot(aes(x = reorder(Month, -month(OccurrenceDate)), fill = Month)) +
+  geom_bar() +
+  labs(x="Months") + 
+  coord_flip() 
+```
+
+### Chance of injuries
+
+The last thing to look at is the probability for each of the factors within the
+data. 
+
+```{r injury}
+mean(auto.data$Injury=="YES")*100
+mean(auto.data$Left_scene=="YES")*100
+mean(auto.data$Property_Damage=="YES")*100
+```
+
+## Share
+
+The Visual for the case study are included in the Analyze stage of this report but
+also include the following tableau dashboard found [here](https://public.tableau.com/app/profile/mark.edney/viz/Collisions_Toronto_CS/Dashboard1). 
+
+## Act
+
+From the analyze provide in this report, and the visuals to support it, it is clear
+that the best advice for the client would be to focus on the regions with the highest
+collisions such as the waterfront communities. It is also clear that collisions 
+most often occur during the week ramping up to Friday. It would be best to operate 
+between the hours of 8 am to 7 pm. There doesn't seem to be any seasonal variation
+so there is no need to contract employees for the winter season. There is a small
+chance of injury for each collision but it maybe a good idea for each tow truck 
+driver to complete some first aid training. 
+
+Going further, I would look into locations that have access to highways as that would
+enable tow truck drivers easier access to a large area of accidents. With that in mind
+it maybe beneficial to include the average speed limit for each neighborhood. 
